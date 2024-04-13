@@ -1,30 +1,37 @@
+if(process.env.NODE_ENV != "production"){
+require('dotenv').config()
+}
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
-//let URL = "mongodb://127.0.0.1:27017/wanderLust";
-//const Listing = require("./models/listing.js");
 const path = require("path");
-const methodOverride = require("method-override");
+const methodOverride = require("method-override"); 
 const ejsMate = require("ejs-mate") ;
 //app.use(express.static(path.join(__dirname, '/public')));
 app.use(express.static(__dirname + '/public'));
 const { listingSchema, reviewSchema } = require("./schema.js");
 const Review = require("./models/reviews.js");
+const ExpressError = require("./utils/ExpressError.js");
+const dbURL = process.env.ATLASDB_URL;
+
 
 //session flash and passport
 const session = require("express-session");
+const MongoStore = require('connect-mongo');
 const flash = require("connect-flash");
 const passport = require("passport");
 const LocalStrategy = require("passport-local");
 const User = require("./models/user.js");
 
-const {isLoggedIn} = require("./middleware.js");
+
+const { isLoggedIn } = require("./middleware.js");
 const {saveRedirectUrl} = require("./middleware.js");
 
 //routes
 const listingRoute = require("./routes/listing.js");
 const reviews = require("./routes/reviews.js")
 const userRoute = require("./routes/user.js");
+
 
 // // app.js
 // const listingRoute = require('./routes/listing');
@@ -45,18 +52,31 @@ console.log("connection successfull");
     console.log(err);
 });
 async function main() {
-   await mongoose.connect("mongodb://127.0.0.1:27017/wanderLust");
+   await mongoose.connect(dbURL);
 };
+const store = MongoStore.create({
+    mongoUrl: dbURL,
+    crypto: {
+        secret:process.env.SECRET,
+    },
+    touchAfter: 24 * 3600, //to refresh the session after how long?
+});
+store.on("error" , () => {
+    console.log("ERROR IN MONGO SESSION STORE", err);
+});
 const sessionOptions = {
-    secret: "mySuperSecretCode",
+    store,
+    secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-        expires: Date.now() + 7 * 24 * 60 * 1000, //ek hafte baad ki
+        expires: Date.now() + 7 * 24 * 60 * 1000,
         maxAge: 7 * 24 * 60 * 1000,
         httpOnly: true
     }
 };
+
+
 
 app.get("/" , (req,res) => {
     res.send("Welcome to root route for wanderlust");
@@ -66,20 +86,20 @@ app.use(session(sessionOptions));
 app.use(flash());
 
 //passport initialise as middleware 
-// app.use(passport.initialize());
-// app.use(passport.session());
-// passport.use(new LocalStrategy(User.authenticate()));
+app.use(passport.initialize());
+app.use(passport.session());
+passport.use(new LocalStrategy(User.authenticate()));
 
-// passport.serializeUser(User.serializeUser());
-// passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 // app.get("/demoUser" , async (req,res) => {
-//    let newUser3 = new User({
-//     email:"DIvya@gmail.com",
-//     username:"delta_student"
+//    let newUser7 = new User({
+//     email:"DIVya@gmail.com",
+//     username:"DeltA_student"
 //    });
 
-//  try{let newRegisteredUse = await User.register(newUser3, "helloworld123");
+//  try{let newRegisteredUse = await User.register(newUser7, "helfgloworld123");
 //  res.send(newRegisteredUse);}catch(err){
 //     console.log(err);
 //  }
@@ -95,10 +115,22 @@ app.use((req, res, next) => {
     });
 
 
+
 app.use('/listings', listingRoute);
 app.use("/listings/:id/reviews",reviews);
 app.use("/",userRoute);
 
+
+app.all("*" ,(req,res,next) => {
+    next(new ExpressError(404 , "page not found"));
+  });
+
+
+
+app.use((err,req,res,next) => {
+    let{statusCode =500 , message = "something went wrong"} = err;
+    res.status(statusCode).render("error.ejs" , {message });
+ });
 
 app.listen(8080 , (req,res) => {
     console.log("its working");
